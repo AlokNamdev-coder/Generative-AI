@@ -1,0 +1,54 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# macOS / Linux / Windows OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Compiled extensions / libraries
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# TensorFlow / Keras model files
+*.h5
+*.hdf5
+*.ckpt
+*.pb
+*.tflite
+
+# VSCode / PyCharm project files
+.vscode/
+.idea/
+
+# Build / dist folders
+build/
+dist/
+*.egg-info/
+
+# pip dependency files (optional if you're using Git LFS for these)
+*.whl
+
+# LFS-tracked large files (optional)
+*.zip
+*.tar.gz
+*.7z
+
+# Environment variable files
+.env
