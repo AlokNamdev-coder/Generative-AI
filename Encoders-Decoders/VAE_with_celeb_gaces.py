@@ -1,23 +1,27 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import tensorflow as tf
-from keras import datasets,optimizers,layers,models,metrics,losses
+import numpy as np
+from keras import layers,models,optimizers,utils,metrics,losses
 from tensorflow.keras import backend as K
+import matplotlib.pyplot as plt
 
-(x_train,y_train),(x_test,y_test)=datasets.fashion_mnist.load_data()
-
+train_data=utils.image_dataset_from_directory(
+    directory="E:\dataset\img_align_celeba\img_align_celeba",
+    labels=None,
+    color_mode='rgb',
+    image_size=(64,64),
+    batch_size=128,
+    seed=42,
+    interpolation='bilinear',
+    shuffle=True
+)
 
 def preprocess(img):
-    img=img.astype('float32')/255.0
-    img=np.pad(img,((0,0),(2,2),(2,2)),)
-    img=np.expand_dims(img,axis=-1)
+    img=tf.cast(img,'float32')/255.0
 
     return img
 
-x_train=preprocess(x_train)
-x_test=preprocess(x_test)
+train=train_data.map(lambda x:preprocess(x))
 
-# Sampling Layer
 
 class Sampling(layers.Layer):
     def call(self,inputs):
@@ -30,42 +34,53 @@ class Sampling(layers.Layer):
 
 # Encoder Part
 
-encoder_input=layers.Input(shape=(32,32,1))
+encoder_input=layers.Input(shape=(64,64,3))
 
 x=layers.Conv2D(filters=32,kernel_size=(3,3),strides=2,padding='same',activation='relu')(encoder_input)
-x=layers.Conv2D(filters=64,kernel_size=(32,32),strides=2,padding='same',activation='relu')(x)
-x=layers.Conv2D(filters=128,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
-x=layers.Conv2D(filters=256,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+x=layers.BatchNormalization(momentum=0.9)(x)
+x=layers.Dropout(0.3)(x)
 
-shape_before_flattening=K.int_shape(x)[1:]
+x=layers.Conv2D(filters=64,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+x=layers.BatchNormalization(momentum=0.9)(x)
+x=layers.Dropout(0.3)(x)
+
+x=layers.Conv2D(filters=128,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+x=layers.BatchNormalization(momentum=0.9)(x)
+x=layers.Dropout(0.3)(x)
+
+x=layers.Conv2D(filters=256,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+x=layers.BatchNormalization(momentum=0.9)(x)
+x=layers.Dropout(0.3)(x)
+
+shape_before_flattering=K.int_shape(x)[1:]
 
 x=layers.Flatten()(x)
 
-z_mean=layers.Dense(64,name='z_mean')(x)
-z_log_var=layers.Dense(64,name='z_log_var')(x)
-
+z_mean=layers.Dense(200,name='z_mean')(x)
+z_log_var=layers.Dense(200,name='z_log_var')(x)
 z=Sampling()([z_mean,z_log_var])
 
 encoder=models.Model(encoder_input,[z_mean,z_log_var,z],name='encoder')
 
-# Decoder Part
+# Decoder-Part
 
-decoder_input=layers.Input(shape=(64,))
+decoder_input=layers.Input(shape=(200,))
 
-x=layers.Dense(np.prod(shape_before_flattening))(decoder_input)
-
-x=layers.Reshape(shape_before_flattening)(x)
+x=layers.Dense(np.prod(shape_before_flattering))(decoder_input)
+x=layers.Reshape(shape_before_flattering)(x)
 
 x=layers.Conv2DTranspose(filters=256,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+
 x=layers.Conv2DTranspose(filters=128,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+
 x=layers.Conv2DTranspose(filters=64,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
+
 x=layers.Conv2DTranspose(filters=32,kernel_size=(3,3),strides=2,padding='same',activation='relu')(x)
 
-decoder_output=layers.Conv2D(filters=1,strides=1,kernel_size=(3,3),padding='same',activation='sigmoid')(x)
+decoder_output=layers.Conv2D(filters=3,kernel_size=(3,3),strides=1,padding='same',activation='sigmoid')(x)
 
-decoder=models.Model(decoder_input,decoder_output,name='decoder')
+decoder=models.Model(decoder_input,decoder_output)
 
-# VAE
 
 class VAE(models.Model):
     def __init__(self,decoder,encoder ):
@@ -76,29 +91,25 @@ class VAE(models.Model):
         self.reconstruction_loss_tracker=metrics.Mean(name='reconstruction_loss_tracker')
         self.Kl_loss_tracker=metrics.Mean(name='Kl_loss_tracker')
 
-
     @property
     def metrics(self):
         return [
             self.total_loss_tracker,
-            self.reconstruction_loss_tracker,
-            self.Kl_loss_tracker
+            self.Kl_loss_tracker,
+            self.reconstruction_loss_tracker
         ]
-        
+    
     def call(self,inputs):
         z_mean,z_log_var,z=encoder(inputs)
         reconstruction=decoder(z)
 
         return z_mean,z_log_var,reconstruction
-        
+    
     def train_step(self,data):
         with tf.GradientTape() as tape:
             z_mean,z_log_var,reconstruction=self(data)
 
-            reconstruction_loss = tf.reduce_mean(tf.reduce_sum(tf.square(data - reconstruction), axis=(1, 2, 3))
-)
-
-
+            reconstruction_loss=tf.reduce_mean(500*losses.binary_crossentropy(tf.reshape(data,[-1,64*64*3]),tf.reshape(reconstruction,[-1,64*64*3])))
             kl_loss=tf.reduce_mean(tf.reduce_sum(-0.5*(1+z_log_var-tf.square(z_mean)-tf.exp(z_log_var)),axis=1))
 
             total_loss=reconstruction_loss+kl_loss
@@ -111,12 +122,12 @@ class VAE(models.Model):
             self.Kl_loss_tracker.update_state(kl_loss)
             self.reconstruction_loss_tracker.update_state(reconstruction_loss)
 
-            return {m.name:m.result()  for m in self.metrics}
-            
+            return {m.name:m.result() for m in self.metrics}
+        
     def test_step(self,data):
         z_mean,z_log_var,reconstruction=self(data)
 
-        reconstruction_loss=tf.reduce_mean(losses.mean_squared_error(data,reconstruction),axis=(1,2,3))
+        reconstruction_loss=tf.reduce_mean(500*losses.binary_crossentropy(tf.reshape(data,[-1,64*64*3]),tf.reshape(reconstruction,[-1,64*64*3])))
 
         kl_loss=tf.reduce_mean(tf.reduce_sum(-0.5*(1+z_log_var-tf.square(z_mean)-tf.exp(z_log_var)),axis=1))
 
@@ -128,40 +139,38 @@ class VAE(models.Model):
         self.Kl_loss_tracker.update_state(kl_loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
 
-
 vae=VAE(encoder,decoder)
-
 vae.compile(optimizer='adam')
-
-vae.fit(x_train,batch_size=100,epochs=5,shuffle=True)
-
-pred_data=x_test[:5000]
-
-_,_,pred=vae.predict(pred_data)
+vae.fit(train,epochs=5)
 
 
 
+grid_width,grid_height=(10,3)
 
-n_to_sum=10
+z_sample=np.random.random(size=(grid_width*grid_height,200))
 
-fig=plt.figure(figsize=(20,4))
+reconstruction=decoder.predict(z_sample)
 
-for i in range(n_to_sum):
+fig=plt.figure(figsize=(18,5))
 
-    ax=fig.add_subplot(2,n_to_sum,i+1)
+fig.subplots_adjust(hspace=0.4,wspace=0.4)
 
-    ax.imshow(pred_data[i].reshape(32,32),cmap='gray')
-    ax.set_title("Original")
+for i in range(grid_height*grid_width):
+    ax=fig.add_subplot(grid_height,grid_width,i+1)
     ax.axis('off')
-
-    ax=fig.add_subplot(2,n_to_sum,i+11)
-
-    ax.imshow(pred[i].reshape(32,32),cmap='gray')
-    ax.set_title("Reconstructed")
-    ax.axis('off')
+    ax.set_title('Predicted_Faces')
+    ax.imshow(reconstruction[i])
 
 plt.tight_layout()
 plt.show()
+
+
+        
+
+
+
+
+
 
 
 
